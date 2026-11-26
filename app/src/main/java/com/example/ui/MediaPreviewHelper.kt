@@ -102,11 +102,13 @@ object MediaPreviewHelper {
             "${Environment.DIRECTORY_PICTURES}/AutoGroupPoster"
         }
 
-        val safeName = "agp_${System.currentTimeMillis()}_${media.displayName.replace(Regex("[^a-zA-Z0-9._-]"), "_")}"
+        val nowMs = System.currentTimeMillis()
+        val safeName = "agp_${nowMs}_${media.displayName.replace(Regex("[^a-zA-Z0-9._-]"), "_")}"
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, safeName)
             put(MediaStore.MediaColumns.MIME_TYPE, media.mimeType)
             put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+            put(MediaStore.MediaColumns.DATE_TAKEN, nowMs)
             put(MediaStore.MediaColumns.IS_PENDING, 1)
         }
 

@@ -135,7 +135,22 @@ class AutoPostAccessibilityService : AccessibilityService() {
                     continue
                 }
 
-                // Step C: Populate post caption directly via Bundle (ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE)
+                // Step C: If photo/video is selected, attach it FIRST while Create Post menu is fully visible
+                val mediaUri = PostQueueManager.state.value.mediaUriString
+                if (!mediaUri.isNullOrBlank()) {
+                    val attached = attachMediaFromGallery()
+                    if (!PostQueueManager.state.value.isRunning) break
+                    if (!attached) {
+                        val hasMore = PostQueueManager.markCurrentGroupFailedAndAdvance("Could not attach media")
+                        if (!hasMore) break
+                        if (!AccessibilityPermissionHelper.isGroupUrl(PostQueueManager.state.value.currentGroupName)) {
+                            navigateBackToFeed()
+                        }
+                        continue
+                    }
+                }
+
+                // Step D: Populate post caption directly via Bundle (ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE)
                 val captionText = PostQueueManager.state.value.captionText
                 if (captionText.isNotBlank()) {
                     val typedCaption = insertCaptionWithoutClipboard(captionText)
@@ -151,13 +166,6 @@ class AutoPostAccessibilityService : AccessibilityService() {
 
                     // If Facebook opened the "Add text" / "টেক্সট যোগ করুন" sub-screen, tap "Done" / "সম্পন্ন"
                     clickDoneOnTextSubScreenIfPresent()
-                    if (!PostQueueManager.state.value.isRunning) break
-                }
-
-                // Step D: Attach selected photo/video (if any) and click "Post" / "পোস্ট করুন"
-                val mediaUri = PostQueueManager.state.value.mediaUriString
-                if (!mediaUri.isNullOrBlank()) {
-                    attachMediaFromGallery()
                     if (!PostQueueManager.state.value.isRunning) break
                 }
 
@@ -435,71 +443,85 @@ class AutoPostAccessibilityService : AccessibilityService() {
         }
     }
 
-    private suspend fun attachMediaFromGallery() {
+    private suspend fun attachMediaFromGallery(): Boolean {
         PostQueueManager.updateStep(
             step = AutomationStep.ATTACHING_MEDIA,
-            statusMessage = "Opening Photo / Video picker..."
+            statusMessage = "Looking for Photo / Video option..."
         )
-        delay(800L)
+        delay(900L)
 
-        val clickedPhotoButton = retryFindAndClick(maxAttempts = 6, delayMs = 600L) { root ->
-            findNode(root) { node ->
-                if (node.isEditable || node.className?.toString() == "android.widget.EditText") {
-                    return@findNode false
+        // First attempt: look directly for Photo/Video button or icon
+        var clickedPhotoButton = retryFindAndClick(maxAttempts = 3, delayMs = 500L) { root ->
+            findPhotoVideoTriggerNode(root)
+        }
+
+        // If not visible yet, Facebook's "Add to your post" / "আপনার পোস্টে যোগ করুন" drawer may be collapsed
+        if (!clickedPhotoButton) {
+            val expandedDrawer = retryFindAndClick(maxAttempts = 2, delayMs = 450L) { root ->
+                findNode(root) { node ->
+                    val combined = "${node.text?.toString().orEmpty()} ${node.contentDescription?.toString().orEmpty()}"
+                    (combined.contains("Add to your post", ignoreCase = true) ||
+                        combined.contains("আপনার পোস্টে যোগ করুন", ignoreCase = true) ||
+                        combined.contains("পোস্টে যোগ করুন", ignoreCase = true)) &&
+                        hasClickableParentOrSelf(node)
                 }
-                val text = node.text?.toString().orEmpty()
-                val desc = node.contentDescription?.toString().orEmpty()
-                val combined = "$text $desc"
-                (combined.contains("Photo/video", ignoreCase = true) ||
-                    combined.contains("Photo/Video", ignoreCase = true) ||
-                    combined.equals("Photo", ignoreCase = true) ||
-                    combined.contains("Photos", ignoreCase = true) ||
-                    combined.contains("Add to your post", ignoreCase = true) ||
-                    combined.contains("ছবি/ভিডিও", ignoreCase = true) ||
-                    combined.contains("ফটো/ভিডিও", ignoreCase = true) ||
-                    combined.equals("ছবি", ignoreCase = true) ||
-                    combined.equals("ফটো", ignoreCase = true)) &&
+            }
+            if (expandedDrawer) {
+                delay(900L)
+                clickedPhotoButton = retryFindAndClick(maxAttempts = 4, delayMs = 550L) { root ->
+                    findPhotoVideoTriggerNode(root)
+                }
+            }
+        }
+
+        if (!clickedPhotoButton) {
+            PostQueueManager.updateStep(
+                step = AutomationStep.ATTACHING_MEDIA,
+                statusMessage = "Photo/Video button not found"
+            )
+            return false
+        }
+
+        PostQueueManager.updateStep(
+            step = AutomationStep.ATTACHING_MEDIA,
+            statusMessage = "Selecting photo/video from gallery..."
+        )
+        delay(1700L)
+
+        // Handle optional runtime permission prompt inside Facebook ("Allow" / "অনুমতি দিন")
+        retryFindAndClick(maxAttempts = 1, delayMs = 300L) { root ->
+            findNode(root) { node ->
+                val text = node.text?.toString()?.trim().orEmpty()
+                (text.equals("Allow all", ignoreCase = true) ||
+                    text.equals("Allow", ignoreCase = true) ||
+                    text.equals("অনুমতি দিন", ignoreCase = true) ||
+                    text.equals("Continue", ignoreCase = true) ||
+                    text.equals("চালিয়ে যান", ignoreCase = true)) &&
                     hasClickableParentOrSelf(node)
             }
         }
 
-        if (!clickedPhotoButton) return
-        delay(1500L)
+        val screenHeight = resources.displayMetrics.heightPixels
+        val headerCutoffY = (screenHeight * 0.18f).toInt()
 
-        // Pick the newest media thumbnail (which we staged to the top of MediaStore)
-        val pickedMedia = retryFindAndClick(maxAttempts = 6, delayMs = 600L) { root ->
-            findNode(root) { node ->
-                val rect = Rect()
-                node.getBoundsInScreen(rect)
-                // Skip top toolbar/back/album dropdown area
-                if (rect.top < 260) return@findNode false
-
-                val text = node.text?.toString().orEmpty()
-                val desc = node.contentDescription?.toString().orEmpty()
-                val cls = node.className?.toString().orEmpty()
-
-                if (desc.contains("Camera", ignoreCase = true) ||
-                    text.contains("Camera", ignoreCase = true) ||
-                    desc.contains("ক্যামেরা", ignoreCase = true) ||
-                    text.contains("ক্যামেরা", ignoreCase = true)
-                ) {
-                    return@findNode false
-                }
-
-                (desc.contains("Photo", ignoreCase = true) ||
-                    desc.contains("Video", ignoreCase = true) ||
-                    desc.contains("Image", ignoreCase = true) ||
-                    desc.contains("ছবি", ignoreCase = true) ||
-                    desc.contains("ভিডিও", ignoreCase = true) ||
-                    (cls.contains("ImageView") && node.isClickable && rect.width() > 140 && rect.height() > 140)) &&
-                    hasClickableParentOrSelf(node)
-            }
+        val pickedMedia = retryFindAndClick(maxAttempts = 6, delayMs = 650L) { root ->
+            findFirstGalleryMediaNode(root, headerCutoffY)
         }
 
-        if (pickedMedia) {
-            delay(1000L)
-            // Tap "Next" / "Done" / "পরবর্তী" / "সম্পন্ন" if Facebook shows a confirmation bar
-            retryFindAndClick(maxAttempts = 3, delayMs = 500L) { root ->
+        if (!pickedMedia) {
+            PostQueueManager.updateStep(
+                step = AutomationStep.ATTACHING_MEDIA,
+                statusMessage = "Could not select gallery item"
+            )
+            return false
+        }
+
+        delay(1200L)
+
+        // If Facebook didn't auto-return to Create Post, tap Next / Done / পরবর্তী / সম্পন্ন
+        val rootAfterPick = rootInActiveWindow
+        if (rootAfterPick == null || findPostButtonNode(rootAfterPick) == null) {
+            retryFindAndClick(maxAttempts = 4, delayMs = 500L) { root ->
                 findNode(root) { node ->
                     val text = node.text?.toString()?.trim().orEmpty()
                     val desc = node.contentDescription?.toString()?.trim().orEmpty()
@@ -507,14 +529,116 @@ class AutoPostAccessibilityService : AccessibilityService() {
                         desc.equals("Next", ignoreCase = true) ||
                         text.equals("Done", ignoreCase = true) ||
                         desc.equals("Done", ignoreCase = true) ||
+                        text.equals("Add", ignoreCase = true) ||
                         text.equals("পরবর্তী", ignoreCase = true) ||
                         desc.equals("পরবর্তী", ignoreCase = true) ||
                         text.equals("সম্পন্ন", ignoreCase = true) ||
-                        desc.equals("সম্পন্ন", ignoreCase = true)) &&
+                        desc.equals("সম্পন্ন", ignoreCase = true) ||
+                        text.equals("যোগ করুন", ignoreCase = true)) &&
+                        node.isEnabled &&
                         hasClickableParentOrSelf(node)
                 }
             }
-            delay(1100L)
+            delay(1300L)
+        }
+        return true
+    }
+
+    private fun findPhotoVideoTriggerNode(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        return findNode(root) { node ->
+            if (node.isEditable || node.className?.toString() == "android.widget.EditText") {
+                return@findNode false
+            }
+            val text = node.text?.toString().orEmpty()
+            val desc = node.contentDescription?.toString().orEmpty()
+            val viewId = node.viewIdResourceName.orEmpty()
+            val combined = "$text $desc"
+
+            val matchesTextOrDesc = combined.contains("Photo/video", ignoreCase = true) ||
+                combined.contains("Photo / video", ignoreCase = true) ||
+                combined.contains("Photos/videos", ignoreCase = true) ||
+                combined.equals("Photo", ignoreCase = true) ||
+                combined.equals("Photos", ignoreCase = true) ||
+                combined.contains("Photo or video", ignoreCase = true) ||
+                combined.contains("Gallery", ignoreCase = true) ||
+                combined.contains("ছবি/ভিডিও", ignoreCase = true) ||
+                combined.contains("ফটো/ভিডিও", ignoreCase = true) ||
+                combined.contains("ফটো / ভিডিও", ignoreCase = true) ||
+                combined.contains("ছবি বা ভিডিও", ignoreCase = true) ||
+                combined.contains("ফটো বা ভিডিও", ignoreCase = true) ||
+                combined.contains("ছবি যোগ", ignoreCase = true) ||
+                combined.contains("ফটো যোগ", ignoreCase = true) ||
+                combined.equals("ছবি", ignoreCase = true) ||
+                combined.equals("ফটো", ignoreCase = true) ||
+                combined.contains("গ্যালারি", ignoreCase = true)
+
+            val matchesViewId = viewId.contains("media_picker", ignoreCase = true) ||
+                viewId.contains("photo_button", ignoreCase = true) ||
+                viewId.contains("gallery_button", ignoreCase = true)
+
+            (matchesTextOrDesc || matchesViewId) && hasClickableParentOrSelf(node)
+        }
+    }
+
+    private fun findFirstGalleryMediaNode(
+        root: AccessibilityNodeInfo,
+        headerCutoffY: Int
+    ): AccessibilityNodeInfo? {
+        // 1. Prefer finding a RecyclerView / GridView media item below the header
+        val gridNode = findNode(root) { node ->
+            val cls = node.className?.toString().orEmpty()
+            (cls.contains("RecyclerView") || cls.contains("GridView")) && node.childCount > 0
+        }
+        if (gridNode != null) {
+            for (i in 0 until gridNode.childCount) {
+                val child = gridNode.getChild(i) ?: continue
+                val rect = Rect()
+                child.getBoundsInScreen(rect)
+                if (rect.top < headerCutoffY || rect.width() < 100 || rect.height() < 100) continue
+                val text = child.text?.toString().orEmpty()
+                val desc = child.contentDescription?.toString().orEmpty()
+                val combined = "$text $desc"
+                if (combined.contains("Camera", ignoreCase = true) ||
+                    combined.contains("ক্যামেরা", ignoreCase = true) ||
+                    combined.contains("Select multiple", ignoreCase = true) ||
+                    combined.contains("একাধিক", ignoreCase = true)
+                ) {
+                    continue
+                }
+                if (hasClickableParentOrSelf(child)) {
+                    return child
+                }
+            }
+        }
+
+        // 2. Fallback: scan entire tree for clickable media tile below headerCutoffY
+        return findNode(root) { node ->
+            val rect = Rect()
+            node.getBoundsInScreen(rect)
+            if (rect.top < headerCutoffY || rect.width() < 120 || rect.height() < 120) {
+                return@findNode false
+            }
+            val text = node.text?.toString().orEmpty()
+            val desc = node.contentDescription?.toString().orEmpty()
+            val cls = node.className?.toString().orEmpty()
+            val combined = "$text $desc"
+
+            if (combined.contains("Camera", ignoreCase = true) ||
+                combined.contains("ক্যামেরা", ignoreCase = true) ||
+                combined.contains("Select multiple", ignoreCase = true) ||
+                combined.contains("একাধিক", ignoreCase = true)
+            ) {
+                return@findNode false
+            }
+
+            (desc.contains("Photo", ignoreCase = true) ||
+                desc.contains("Video", ignoreCase = true) ||
+                desc.contains("Image", ignoreCase = true) ||
+                desc.contains("ছবি", ignoreCase = true) ||
+                desc.contains("ফটো", ignoreCase = true) ||
+                desc.contains("ভিডিও", ignoreCase = true) ||
+                (cls.contains("ImageView") && node.isClickable)) &&
+                hasClickableParentOrSelf(node)
         }
     }
 
