@@ -2,6 +2,8 @@
 
 **Auto Group Poster** is a free, **100% open-source** Android application built with **Kotlin**, **Jetpack Compose (Material 3)**, **Room Database**, and Android's **AccessibilityService**. It helps you maintain a local checklist of your Facebook groups and automate publishing a post (text caption + photo or video) across your checked groups using the official Facebook app (`com.facebook.katana`).
 
+[![Download APK](https://img.shields.io/badge/Download_APK-FacebookAutoGroupPoster.apk-1877F2?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dopartner001-art/AutoGroupPoster/releases/download/AutoGroupPoster_v1.0/FacebookAutoGroupPoster.apk)
+
 > **Open-Source & Privacy Guarantee:** Every line of source code in this repository is public and auditable. The APK built by GitHub Actions comes directly from this exact source code.
 
 ---
@@ -57,9 +59,13 @@ Anyone can verify these facts directly in the source files below:
 
 ## Where to Download the App (APK)
 
-1. **From GitHub Releases (Recommended — 1-Click Direct Download, No Login Needed):**
-   - Open the **Releases** section on this repository page (or tap **Latest** under Releases).
-   - Under **Assets**, tap **`AutoGroupPoster.apk`** to download the APK directly to your phone.
+Click the button below for an instant direct download (no GitHub login required):
+
+[![Download APK](https://img.shields.io/badge/Download_APK-FacebookAutoGroupPoster.apk-1877F2?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dopartner001-art/AutoGroupPoster/releases/download/AutoGroupPoster_v1.0/FacebookAutoGroupPoster.apk)
+
+1. **Direct Link / GitHub Releases (Recommended — 1-Click Download):**
+   - Direct URL: [`https://github.com/dopartner001-art/AutoGroupPoster/releases/download/AutoGroupPoster_v1.0/FacebookAutoGroupPoster.apk`](https://github.com/dopartner001-art/AutoGroupPoster/releases/download/AutoGroupPoster_v1.0/FacebookAutoGroupPoster.apk)
+   - Or open **Releases** on this repository page and tap **`FacebookAutoGroupPoster.apk`**.
 2. **From GitHub Actions (Requires GitHub Login):**
    - Open the **Actions** tab -> click the latest green **"Build Debug APK"** workflow run -> scroll to **Artifacts** -> download **`auto-group-poster-debug-apk`** and extract `app-debug.apk`.
 
@@ -69,7 +75,7 @@ Anyone can verify these facts directly in the source files below:
 
 1. **Install Prerequisites:**
    - Install the official **Facebook** app (`com.facebook.katana`) and log in to your account *(Facebook Lite is not supported)*.
-   - Install `app-debug.apk` on your Android phone.
+   - Install **`FacebookAutoGroupPoster.apk`** on your Android phone.
 2. **Unlock Restricted Settings (Android 13 / 14 / 15+):**
    - **Method A (Standard):** Long-press the **Auto Group Poster** icon -> tap **App info** (or **Settings > Apps > Auto Group Poster**) -> tap the top-right **`⋮` (three dots)** -> select **Allow restricted settings** -> confirm with your PIN or fingerprint.
    - **Method B (If "Allow restricted settings" is hidden):** Open **Auto Group Poster** -> tap **Enable Service** -> tap the grayed-out **Auto Group Poster Engine** once so Android registers the request -> return to **App info > `⋮`** (or scroll to the bottom of App info on ColorOS/Realme/Xiaomi devices) -> **Allow restricted settings** will now appear.
