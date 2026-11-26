@@ -1,0 +1,6 @@
+{
+  "name": "Auto Group Poster",
+  "description": "Manage a checklist of Facebook groups and automate publishing posts with captions, photos, and videos via AccessibilityService.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
