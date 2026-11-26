@@ -57,12 +57,11 @@ Anyone can verify these facts directly in the source files below:
 
 ## Where to Download the App (APK)
 
-1. **From GitHub Actions (Automated Build):**
-   - Open the **Actions** tab at the top of this GitHub repository.
-   - Click the latest green **"Build Debug APK"** workflow run.
-   - Scroll to the **Artifacts** section at the bottom and download **`auto-group-poster-debug-apk`** (extract the ZIP to get `app-debug.apk`).
-2. **From GitHub Releases (if published):**
-   - Check the **Releases** section on the right side of the repository page for tagged `.apk` downloads.
+1. **From GitHub Releases (Recommended — 1-Click Direct Download, No Login Needed):**
+   - Open the **Releases** section on this repository page (or tap **Latest** under Releases).
+   - Under **Assets**, tap **`AutoGroupPoster.apk`** to download the APK directly to your phone.
+2. **From GitHub Actions (Requires GitHub Login):**
+   - Open the **Actions** tab -> click the latest green **"Build Debug APK"** workflow run -> scroll to **Artifacts** -> download **`auto-group-poster-debug-apk`** and extract `app-debug.apk`.
 
 ---
 
