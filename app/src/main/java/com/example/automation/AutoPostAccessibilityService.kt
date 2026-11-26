@@ -94,7 +94,6 @@ class AutoPostAccessibilityService : AccessibilityService() {
     private fun startAutomationLoop() {
         automationJob?.cancel()
         automationJob = serviceScope.launch {
-            // Allow Facebook app / deep link to launch and settle
             delay(2800L)
 
             while (PostQueueManager.state.value.isRunning) {
@@ -124,7 +123,7 @@ class AutoPostAccessibilityService : AccessibilityService() {
                     continue
                 }
 
-                // Step B: Click "Write something..." inside the group
+                // Step B: Click "Write something..." / "কিছু লিখুন..." inside the group
                 val openedComposer = openGroupComposer()
                 if (!PostQueueManager.state.value.isRunning) break
                 if (!openedComposer) {
@@ -149,9 +148,13 @@ class AutoPostAccessibilityService : AccessibilityService() {
                         }
                         continue
                     }
+
+                    // If Facebook opened the "Add text" / "টেক্সট যোগ করুন" sub-screen, tap "Done" / "সম্পন্ন"
+                    clickDoneOnTextSubScreenIfPresent()
+                    if (!PostQueueManager.state.value.isRunning) break
                 }
 
-                // Step D: Attach selected photo/video (if any) and click "Post"
+                // Step D: Attach selected photo/video (if any) and click "Post" / "পোস্ট করুন"
                 val mediaUri = PostQueueManager.state.value.mediaUriString
                 if (!mediaUri.isNullOrBlank()) {
                     attachMediaFromGallery()
@@ -214,21 +217,21 @@ class AutoPostAccessibilityService : AccessibilityService() {
             delay(2800L)
         }
 
-        // Wait until Facebook finishes loading the group page (or if a "Visit group" prompt appears, tap it)
         return retryUntil(maxAttempts = 8, delayMs = 700L) {
             val root = rootInActiveWindow ?: return@retryUntil false
             if (root.packageName?.toString() != AccessibilityPermissionHelper.FACEBOOK_PACKAGE) {
                 return@retryUntil false
             }
 
-            // Some share links show a "Visit group" or "View group" button first
             val visitBtn = findNode(root) { node ->
                 val text = node.text?.toString()?.trim().orEmpty()
                 val desc = node.contentDescription?.toString()?.trim().orEmpty()
                 (text.equals("Visit group", ignoreCase = true) ||
                     desc.equals("Visit group", ignoreCase = true) ||
                     text.equals("View group", ignoreCase = true) ||
-                    desc.equals("View group", ignoreCase = true)) &&
+                    desc.equals("View group", ignoreCase = true) ||
+                    text.equals("গ্রুপ দেখুন", ignoreCase = true) ||
+                    text.equals("গ্রুপ ভিজিট করুন", ignoreCase = true)) &&
                     hasClickableParentOrSelf(node)
             }
             if (visitBtn != null) {
@@ -236,7 +239,6 @@ class AutoPostAccessibilityService : AccessibilityService() {
                 return@retryUntil false
             }
 
-            // Ready once group composer prompt or group header is visible
             findComposerTriggerNode(root) != null || findScrollableNode(root) != null
         }
     }
@@ -254,6 +256,7 @@ class AutoPostAccessibilityService : AccessibilityService() {
                 val viewId = node.viewIdResourceName.orEmpty()
                 (desc.contains("Search", ignoreCase = true) ||
                     desc.contains("খুঁজুন", ignoreCase = true) ||
+                    desc.contains("অনুসন্ধান", ignoreCase = true) ||
                     text.equals("Search", ignoreCase = true) ||
                     viewId.contains("search_button", ignoreCase = true) ||
                     viewId.contains("search_bar", ignoreCase = true)) &&
@@ -289,23 +292,24 @@ class AutoPostAccessibilityService : AccessibilityService() {
         if (!typed) return false
         delay(1400L)
 
-        // Tap "See results for ..." if suggestion dropdown is shown
         retryFindAndClick(maxAttempts = 2, delayMs = 500L) { root ->
             findNode(root) { node ->
                 val text = node.text?.toString().orEmpty()
-                text.contains("See results", ignoreCase = true) && hasClickableParentOrSelf(node)
+                (text.contains("See results", ignoreCase = true) ||
+                    text.contains("ফলাফল দেখুন", ignoreCase = true)) &&
+                    hasClickableParentOrSelf(node)
             }
         }
         delay(1200L)
 
-        // Switch to "Groups" filter chip if visible
         retryFindAndClick(maxAttempts = 2, delayMs = 450L) { root ->
             findNode(root) { node ->
                 val text = node.text?.toString()?.trim().orEmpty()
                 val desc = node.contentDescription?.toString()?.trim().orEmpty()
                 (text.equals("Groups", ignoreCase = true) ||
                     desc.equals("Groups", ignoreCase = true) ||
-                    text.equals("গ্রুপ", ignoreCase = true)) &&
+                    text.equals("গ্রুপ", ignoreCase = true) ||
+                    text.equals("গ্রুপসমূহ", ignoreCase = true)) &&
                     hasClickableParentOrSelf(node)
             }
         }
@@ -323,7 +327,6 @@ class AutoPostAccessibilityService : AccessibilityService() {
                 }
                 val rect = Rect()
                 node.getBoundsInScreen(rect)
-                // Ignore top header/search bar area
                 if (rect.top < 240) return@findNode false
 
                 val text = node.text?.toString()?.trim().orEmpty()
@@ -371,7 +374,10 @@ class AutoPostAccessibilityService : AccessibilityService() {
                 combined.contains("Share something", ignoreCase = true) ||
                 combined.contains("What's on your mind", ignoreCase = true) ||
                 combined.contains("Create post", ignoreCase = true) ||
-                combined.contains("কিছু লিখুন", ignoreCase = true)) &&
+                combined.contains("কিছু লিখুন", ignoreCase = true) ||
+                combined.contains("পাবলিক পোস্ট", ignoreCase = true) ||
+                combined.contains("পোস্ট তৈরি", ignoreCase = true) ||
+                combined.contains("আপনার মনে কী", ignoreCase = true)) &&
                 hasClickableParentOrSelf(node)
         }
     }
@@ -398,14 +404,45 @@ class AutoPostAccessibilityService : AccessibilityService() {
         }
     }
 
+    private suspend fun clickDoneOnTextSubScreenIfPresent() {
+        delay(600L)
+        val root = rootInActiveWindow ?: return
+
+        // Only press Done ("সম্পন্ন" / "Done") if we're on Facebook's "Add text" / "টেক্সট যোগ করুন" sub-screen
+        // or if the Post button isn't visible yet while Done/সম্পন্ন is visible in the top bar.
+        val hasPostButtonAlready = findPostButtonNode(root) != null
+        if (hasPostButtonAlready) return
+
+        val clickedDone = retryFindAndClick(maxAttempts = 3, delayMs = 450L) { currentRoot ->
+            findNode(currentRoot) { node ->
+                if (node.isEditable || node.className?.toString() == "android.widget.EditText") {
+                    return@findNode false
+                }
+                val text = node.text?.toString()?.trim().orEmpty()
+                val desc = node.contentDescription?.toString()?.trim().orEmpty()
+                val isDoneLabel = text.equals("Done", ignoreCase = true) ||
+                    desc.equals("Done", ignoreCase = true) ||
+                    text.equals("সম্পন্ন", ignoreCase = true) ||
+                    desc.equals("সম্পন্ন", ignoreCase = true) ||
+                    text.equals("ঠিক আছে", ignoreCase = true) ||
+                    text.equals("Save", ignoreCase = true) ||
+                    text.equals("সংরক্ষণ করুন", ignoreCase = true)
+                isDoneLabel && node.isEnabled && hasClickableParentOrSelf(node)
+            }
+        }
+        if (clickedDone) {
+            delay(1000L)
+        }
+    }
+
     private suspend fun attachMediaFromGallery() {
         PostQueueManager.updateStep(
             step = AutomationStep.ATTACHING_MEDIA,
-            statusMessage = "Attaching selected photo/video..."
+            statusMessage = "Opening Photo / Video picker..."
         )
-        delay(900L)
+        delay(800L)
 
-        val clickedPhotoButton = retryFindAndClick(maxAttempts = 5, delayMs = 600L) { root ->
+        val clickedPhotoButton = retryFindAndClick(maxAttempts = 6, delayMs = 600L) { root ->
             findNode(root) { node ->
                 if (node.isEditable || node.className?.toString() == "android.widget.EditText") {
                     return@findNode false
@@ -417,7 +454,11 @@ class AutoPostAccessibilityService : AccessibilityService() {
                     combined.contains("Photo/Video", ignoreCase = true) ||
                     combined.equals("Photo", ignoreCase = true) ||
                     combined.contains("Photos", ignoreCase = true) ||
-                    combined.contains("ছবি/ভিডিও", ignoreCase = true)) &&
+                    combined.contains("Add to your post", ignoreCase = true) ||
+                    combined.contains("ছবি/ভিডিও", ignoreCase = true) ||
+                    combined.contains("ফটো/ভিডিও", ignoreCase = true) ||
+                    combined.equals("ছবি", ignoreCase = true) ||
+                    combined.equals("ফটো", ignoreCase = true)) &&
                     hasClickableParentOrSelf(node)
             }
         }
@@ -425,21 +466,39 @@ class AutoPostAccessibilityService : AccessibilityService() {
         if (!clickedPhotoButton) return
         delay(1500L)
 
-        val pickedMedia = retryFindAndClick(maxAttempts = 5, delayMs = 600L) { root ->
+        // Pick the newest media thumbnail (which we staged to the top of MediaStore)
+        val pickedMedia = retryFindAndClick(maxAttempts = 6, delayMs = 600L) { root ->
             findNode(root) { node ->
+                val rect = Rect()
+                node.getBoundsInScreen(rect)
+                // Skip top toolbar/back/album dropdown area
+                if (rect.top < 260) return@findNode false
+
+                val text = node.text?.toString().orEmpty()
                 val desc = node.contentDescription?.toString().orEmpty()
                 val cls = node.className?.toString().orEmpty()
+
+                if (desc.contains("Camera", ignoreCase = true) ||
+                    text.contains("Camera", ignoreCase = true) ||
+                    desc.contains("ক্যামেরা", ignoreCase = true) ||
+                    text.contains("ক্যামেরা", ignoreCase = true)
+                ) {
+                    return@findNode false
+                }
+
                 (desc.contains("Photo", ignoreCase = true) ||
                     desc.contains("Video", ignoreCase = true) ||
                     desc.contains("Image", ignoreCase = true) ||
-                    (cls.contains("ImageView") && node.isClickable)) &&
-                    !desc.contains("Camera", ignoreCase = true) &&
+                    desc.contains("ছবি", ignoreCase = true) ||
+                    desc.contains("ভিডিও", ignoreCase = true) ||
+                    (cls.contains("ImageView") && node.isClickable && rect.width() > 140 && rect.height() > 140)) &&
                     hasClickableParentOrSelf(node)
             }
         }
 
         if (pickedMedia) {
             delay(1000L)
+            // Tap "Next" / "Done" / "পরবর্তী" / "সম্পন্ন" if Facebook shows a confirmation bar
             retryFindAndClick(maxAttempts = 3, delayMs = 500L) { root ->
                 findNode(root) { node ->
                     val text = node.text?.toString()?.trim().orEmpty()
@@ -448,11 +507,14 @@ class AutoPostAccessibilityService : AccessibilityService() {
                         desc.equals("Next", ignoreCase = true) ||
                         text.equals("Done", ignoreCase = true) ||
                         desc.equals("Done", ignoreCase = true) ||
-                        text.equals("পরবর্তী", ignoreCase = true)) &&
+                        text.equals("পরবর্তী", ignoreCase = true) ||
+                        desc.equals("পরবর্তী", ignoreCase = true) ||
+                        text.equals("সম্পন্ন", ignoreCase = true) ||
+                        desc.equals("সম্পন্ন", ignoreCase = true)) &&
                         hasClickableParentOrSelf(node)
                 }
             }
-            delay(1000L)
+            delay(1100L)
         }
     }
 
@@ -464,20 +526,28 @@ class AutoPostAccessibilityService : AccessibilityService() {
         delay(800L)
 
         return retryFindAndClick(maxAttempts = 8, delayMs = 600L) { root ->
-            findNode(root) { node ->
-                if (node.isEditable || node.className?.toString() == "android.widget.EditText") {
-                    return@findNode false
-                }
-                val text = node.text?.toString()?.trim().orEmpty()
-                val desc = node.contentDescription?.toString()?.trim().orEmpty()
-                val isPostLabel = text.equals("Post", ignoreCase = true) ||
-                    text.equals("POST", ignoreCase = true) ||
-                    desc.equals("Post", ignoreCase = true) ||
-                    desc.equals("POST", ignoreCase = true) ||
-                    text.equals("পোস্ট", ignoreCase = true) ||
-                    desc.equals("পোস্ট", ignoreCase = true)
-                isPostLabel && node.isEnabled && hasClickableParentOrSelf(node)
+            findPostButtonNode(root)
+        }
+    }
+
+    private fun findPostButtonNode(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        return findNode(root) { node ->
+            if (node.isEditable || node.className?.toString() == "android.widget.EditText") {
+                return@findNode false
             }
+            val text = node.text?.toString()?.trim().orEmpty()
+            val desc = node.contentDescription?.toString()?.trim().orEmpty()
+            val isPostLabel = text.equals("Post", ignoreCase = true) ||
+                text.equals("POST", ignoreCase = true) ||
+                desc.equals("Post", ignoreCase = true) ||
+                desc.equals("POST", ignoreCase = true) ||
+                text.equals("Publish", ignoreCase = true) ||
+                text.equals("পোস্ট", ignoreCase = true) ||
+                desc.equals("পোস্ট", ignoreCase = true) ||
+                text.equals("পোস্ট করুন", ignoreCase = true) ||
+                desc.equals("পোস্ট করুন", ignoreCase = true) ||
+                text.equals("প্রকাশ করুন", ignoreCase = true)
+            isPostLabel && node.isEnabled && hasClickableParentOrSelf(node)
         }
     }
 
@@ -488,7 +558,8 @@ class AutoPostAccessibilityService : AccessibilityService() {
             val hasSearch = root != null && findNode(root) { node ->
                 val desc = node.contentDescription?.toString().orEmpty()
                 desc.contains("Search Facebook", ignoreCase = true) ||
-                    desc.equals("Search", ignoreCase = true)
+                    desc.equals("Search", ignoreCase = true) ||
+                    desc.contains("খুঁজুন", ignoreCase = true)
             } != null
             if (hasSearch) return
             performGlobalAction(GLOBAL_ACTION_BACK)

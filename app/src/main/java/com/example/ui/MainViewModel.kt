@@ -155,22 +155,28 @@ class MainViewModel(
             return
         }
 
-        PostQueueManager.startPosting(
-            groupNames = selectedGroups,
-            captionText = state.captionText.trim(),
-            mediaUriString = state.selectedMedia?.uri?.toString(),
-            mediaMimeType = state.selectedMedia?.mimeType
-        )
+        viewModelScope.launch {
+            val stagedMediaUri = state.selectedMedia?.let { media ->
+                MediaPreviewHelper.stageMediaToGalleryTopIfSupported(getApplication(), media)
+            }
 
-        val firstTarget = selectedGroups.first()
-        val launched = if (AccessibilityPermissionHelper.isGroupUrl(firstTarget)) {
-            AccessibilityPermissionHelper.openFacebookGroupByUrl(getApplication(), firstTarget)
-        } else {
-            AccessibilityPermissionHelper.launchFacebookApp(getApplication())
-        }
-        if (!launched) {
-            PostQueueManager.stopPosting("Could not open Facebook app")
-            _uiState.update { it.copy(showFacebookMissingDialog = true) }
+            PostQueueManager.startPosting(
+                groupNames = selectedGroups,
+                captionText = state.captionText.trim(),
+                mediaUriString = stagedMediaUri?.toString(),
+                mediaMimeType = state.selectedMedia?.mimeType
+            )
+
+            val firstTarget = selectedGroups.first()
+            val launched = if (AccessibilityPermissionHelper.isGroupUrl(firstTarget)) {
+                AccessibilityPermissionHelper.openFacebookGroupByUrl(getApplication(), firstTarget)
+            } else {
+                AccessibilityPermissionHelper.launchFacebookApp(getApplication())
+            }
+            if (!launched) {
+                PostQueueManager.stopPosting("Could not open Facebook app")
+                _uiState.update { it.copy(showFacebookMissingDialog = true) }
+            }
         }
     }
 
