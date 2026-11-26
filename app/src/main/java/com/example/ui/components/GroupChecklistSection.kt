@@ -116,7 +116,7 @@ fun GroupChecklistSection(
                         )
                         Text(
                             text = if (groups.isEmpty()) {
-                                "Save exact group names locally"
+                                "Save group names or Facebook group links"
                             } else {
                                 "$selectedCount of ${groups.size} checked for posting"
                             },

@@ -69,6 +69,41 @@ object AccessibilityPermissionHelper {
         context.startActivity(intent)
     }
 
+    fun isGroupUrl(entry: String): Boolean {
+        val trimmed = entry.trim().lowercase()
+        return trimmed.startsWith("http://") ||
+            trimmed.startsWith("https://") ||
+            trimmed.startsWith("www.facebook.com/") ||
+            trimmed.startsWith("facebook.com/") ||
+            trimmed.startsWith("m.facebook.com/") ||
+            trimmed.startsWith("fb.com/")
+    }
+
+    fun normalizeGroupUrl(entry: String): String {
+        val trimmed = entry.trim()
+        return if (trimmed.startsWith("http://", ignoreCase = true) ||
+            trimmed.startsWith("https://", ignoreCase = true)
+        ) {
+            trimmed
+        } else {
+            "https://$trimmed"
+        }
+    }
+
+    fun openFacebookGroupByUrl(context: Context, groupUrl: String): Boolean {
+        val normalized = normalizeGroupUrl(groupUrl)
+        val viewIntent = Intent(Intent.ACTION_VIEW, Uri.parse(normalized)).apply {
+            setPackage(FACEBOOK_PACKAGE)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        return try {
+            context.startActivity(viewIntent)
+            true
+        } catch (_: Exception) {
+            launchFacebookApp(context)
+        }
+    }
+
     fun launchFacebookApp(context: Context): Boolean {
         val launchIntent = context.packageManager.getLaunchIntentForPackage(FACEBOOK_PACKAGE)
             ?.apply {

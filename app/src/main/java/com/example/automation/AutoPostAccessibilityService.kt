@@ -2,6 +2,7 @@ package com.example.automation
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
+import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
 import android.view.accessibility.AccessibilityEvent
@@ -63,7 +64,7 @@ class AutoPostAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // Events keep rootInActiveWindow fresh while the coroutine automation engine inspects nodes.
+        // Keeps window node tree updated while coroutine engine drives automation steps.
     }
 
     override fun onInterrupt() {
@@ -93,24 +94,33 @@ class AutoPostAccessibilityService : AccessibilityService() {
     private fun startAutomationLoop() {
         automationJob?.cancel()
         automationJob = serviceScope.launch {
-            // Allow Facebook app to launch and settle
-            delay(2200L)
+            // Allow Facebook app / deep link to launch and settle
+            delay(2800L)
 
             while (PostQueueManager.state.value.isRunning) {
                 val snapshot = PostQueueManager.state.value
-                val groupName = snapshot.currentGroupName
-                if (groupName.isBlank()) {
+                val groupTarget = snapshot.currentGroupName
+                if (groupTarget.isBlank()) {
                     PostQueueManager.stopPosting("No groups remaining in queue")
                     break
                 }
 
-                // Step A: Open Facebook Search, type group name via ACTION_SET_TEXT, and enter the group
-                val enteredGroup = openSearchAndEnterGroup(groupName)
+                val isUrl = AccessibilityPermissionHelper.isGroupUrl(groupTarget)
+
+                // Step A: Open group directly via URL deep link OR search by group name
+                val enteredGroup = if (isUrl) {
+                    openGroupDirectlyByUrl(groupTarget, isFirstInQueue = snapshot.currentIndex == 0)
+                } else {
+                    openSearchAndEnterGroup(groupTarget)
+                }
+
                 if (!PostQueueManager.state.value.isRunning) break
                 if (!enteredGroup) {
                     val hasMore = PostQueueManager.markCurrentGroupFailedAndAdvance("Group not found")
                     if (!hasMore) break
-                    navigateBackToFeed()
+                    if (!AccessibilityPermissionHelper.isGroupUrl(PostQueueManager.state.value.currentGroupName)) {
+                        navigateBackToFeed()
+                    }
                     continue
                 }
 
@@ -118,9 +128,11 @@ class AutoPostAccessibilityService : AccessibilityService() {
                 val openedComposer = openGroupComposer()
                 if (!PostQueueManager.state.value.isRunning) break
                 if (!openedComposer) {
-                    val hasMore = PostQueueManager.markCurrentGroupFailedAndAdvance("Composer unavailable")
+                    val hasMore = PostQueueManager.markCurrentGroupFailedAndAdvance("Write box not found")
                     if (!hasMore) break
-                    navigateBackToFeed()
+                    if (!AccessibilityPermissionHelper.isGroupUrl(PostQueueManager.state.value.currentGroupName)) {
+                        navigateBackToFeed()
+                    }
                     continue
                 }
 
@@ -132,7 +144,9 @@ class AutoPostAccessibilityService : AccessibilityService() {
                     if (!typedCaption) {
                         val hasMore = PostQueueManager.markCurrentGroupFailedAndAdvance("Caption box not found")
                         if (!hasMore) break
-                        navigateBackToFeed()
+                        if (!AccessibilityPermissionHelper.isGroupUrl(PostQueueManager.state.value.currentGroupName)) {
+                            navigateBackToFeed()
+                        }
                         continue
                     }
                 }
@@ -149,12 +163,14 @@ class AutoPostAccessibilityService : AccessibilityService() {
                 if (!clickedPost) {
                     val hasMore = PostQueueManager.markCurrentGroupFailedAndAdvance("Post button not found")
                     if (!hasMore) break
-                    navigateBackToFeed()
+                    if (!AccessibilityPermissionHelper.isGroupUrl(PostQueueManager.state.value.currentGroupName)) {
+                        navigateBackToFeed()
+                    }
                     continue
                 }
 
                 // Record successful post timestamp locally in Room
-                groupRepository.markGroupPosted(groupName)
+                groupRepository.markGroupPosted(groupTarget)
 
                 // Step E: Random human-like pause (8-15 seconds), navigate back, and advance queue
                 val pauseSeconds = Random.nextInt(8, 16)
@@ -171,14 +187,57 @@ class AutoPostAccessibilityService : AccessibilityService() {
 
                 PostQueueManager.updateStep(
                     step = AutomationStep.NAVIGATING_BACK,
-                    statusMessage = "Returning to feed..."
+                    statusMessage = "Moving to next group..."
                 )
-                navigateBackToFeed()
 
                 val hasMore = PostQueueManager.markCurrentGroupCompletedAndAdvance()
                 if (!hasMore) break
+
+                val nextGroup = PostQueueManager.state.value.currentGroupName
+                if (!AccessibilityPermissionHelper.isGroupUrl(nextGroup)) {
+                    navigateBackToFeed()
+                }
                 delay(1200L)
             }
+        }
+    }
+
+    private suspend fun openGroupDirectlyByUrl(groupUrl: String, isFirstInQueue: Boolean): Boolean {
+        PostQueueManager.updateStep(
+            step = AutomationStep.SELECTING_GROUP_RESULT,
+            statusMessage = "Opening group link directly..."
+        )
+
+        if (!isFirstInQueue) {
+            val opened = AccessibilityPermissionHelper.openFacebookGroupByUrl(applicationContext, groupUrl)
+            if (!opened) return false
+            delay(2800L)
+        }
+
+        // Wait until Facebook finishes loading the group page (or if a "Visit group" prompt appears, tap it)
+        return retryUntil(maxAttempts = 8, delayMs = 700L) {
+            val root = rootInActiveWindow ?: return@retryUntil false
+            if (root.packageName?.toString() != AccessibilityPermissionHelper.FACEBOOK_PACKAGE) {
+                return@retryUntil false
+            }
+
+            // Some share links show a "Visit group" or "View group" button first
+            val visitBtn = findNode(root) { node ->
+                val text = node.text?.toString()?.trim().orEmpty()
+                val desc = node.contentDescription?.toString()?.trim().orEmpty()
+                (text.equals("Visit group", ignoreCase = true) ||
+                    desc.equals("Visit group", ignoreCase = true) ||
+                    text.equals("View group", ignoreCase = true) ||
+                    desc.equals("View group", ignoreCase = true)) &&
+                    hasClickableParentOrSelf(node)
+            }
+            if (visitBtn != null) {
+                clickNodeOrParent(visitBtn)
+                return@retryUntil false
+            }
+
+            // Ready once group composer prompt or group header is visible
+            findComposerTriggerNode(root) != null || findScrollableNode(root) != null
         }
     }
 
@@ -230,19 +289,16 @@ class AutoPostAccessibilityService : AccessibilityService() {
         if (!typed) return false
         delay(1400L)
 
-        // Tap "See results for ..." or keyboard search button if suggestion list is open
+        // Tap "See results for ..." if suggestion dropdown is shown
         retryFindAndClick(maxAttempts = 2, delayMs = 500L) { root ->
             findNode(root) { node ->
                 val text = node.text?.toString().orEmpty()
-                val desc = node.contentDescription?.toString().orEmpty()
-                (text.contains("See results", ignoreCase = true) ||
-                    desc.contains("Search", ignoreCase = true) && !node.isEditable) &&
-                    hasClickableParentOrSelf(node)
+                text.contains("See results", ignoreCase = true) && hasClickableParentOrSelf(node)
             }
         }
         delay(1200L)
 
-        // Prefer switching to "Groups" filter chip if visible
+        // Switch to "Groups" filter chip if visible
         retryFindAndClick(maxAttempts = 2, delayMs = 450L) { root ->
             findNode(root) { node ->
                 val text = node.text?.toString()?.trim().orEmpty()
@@ -265,6 +321,11 @@ class AutoPostAccessibilityService : AccessibilityService() {
                 if (node.isEditable || node.className?.toString() == "android.widget.EditText") {
                     return@findNode false
                 }
+                val rect = Rect()
+                node.getBoundsInScreen(rect)
+                // Ignore top header/search bar area
+                if (rect.top < 240) return@findNode false
+
                 val text = node.text?.toString()?.trim().orEmpty()
                 val desc = node.contentDescription?.toString()?.trim().orEmpty()
                 val matchesName = text.equals(groupName, ignoreCase = true) ||
@@ -279,22 +340,39 @@ class AutoPostAccessibilityService : AccessibilityService() {
     private suspend fun openGroupComposer(): Boolean {
         PostQueueManager.updateStep(
             step = AutomationStep.OPENING_COMPOSER,
-            statusMessage = "Opening \"Write something...\" box..."
+            statusMessage = "Looking for \"Write something...\" box..."
         )
-        delay(1500L)
+        delay(1200L)
 
-        return retryFindAndClick(maxAttempts = 10, delayMs = 700L) { root ->
-            findNode(root) { node ->
-                val text = node.text?.toString().orEmpty()
-                val desc = node.contentDescription?.toString().orEmpty()
-                val combined = "$text $desc"
-                (combined.contains("Write something", ignoreCase = true) ||
-                    combined.contains("Create a public post", ignoreCase = true) ||
-                    combined.contains("Start a discussion", ignoreCase = true) ||
-                    combined.contains("Share something", ignoreCase = true) ||
-                    combined.contains("কিছু লিখুন", ignoreCase = true)) &&
-                    hasClickableParentOrSelf(node)
+        var scrolledOnce = false
+        return retryUntil(maxAttempts = 10, delayMs = 700L) {
+            val root = rootInActiveWindow ?: return@retryUntil false
+            val target = findComposerTriggerNode(root)
+            if (target != null) {
+                return@retryUntil clickNodeOrParent(target)
             }
+            if (!scrolledOnce) {
+                scrolledOnce = true
+                findScrollableNode(root)?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+            }
+            false
+        }
+    }
+
+    private fun findComposerTriggerNode(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        return findNode(root) { node ->
+            val text = node.text?.toString().orEmpty()
+            val desc = node.contentDescription?.toString().orEmpty()
+            val combined = "$text $desc"
+            (combined.contains("Write something", ignoreCase = true) ||
+                combined.contains("Create a public post", ignoreCase = true) ||
+                combined.contains("Write a public post", ignoreCase = true) ||
+                combined.contains("Start a discussion", ignoreCase = true) ||
+                combined.contains("Share something", ignoreCase = true) ||
+                combined.contains("What's on your mind", ignoreCase = true) ||
+                combined.contains("Create post", ignoreCase = true) ||
+                combined.contains("কিছু লিখুন", ignoreCase = true)) &&
+                hasClickableParentOrSelf(node)
         }
     }
 
@@ -329,6 +407,9 @@ class AutoPostAccessibilityService : AccessibilityService() {
 
         val clickedPhotoButton = retryFindAndClick(maxAttempts = 5, delayMs = 600L) { root ->
             findNode(root) { node ->
+                if (node.isEditable || node.className?.toString() == "android.widget.EditText") {
+                    return@findNode false
+                }
                 val text = node.text?.toString().orEmpty()
                 val desc = node.contentDescription?.toString().orEmpty()
                 val combined = "$text $desc"
@@ -344,7 +425,6 @@ class AutoPostAccessibilityService : AccessibilityService() {
         if (!clickedPhotoButton) return
         delay(1500L)
 
-        // Pick the target media thumbnail in Facebook's gallery picker
         val pickedMedia = retryFindAndClick(maxAttempts = 5, delayMs = 600L) { root ->
             findNode(root) { node ->
                 val desc = node.contentDescription?.toString().orEmpty()
@@ -352,7 +432,7 @@ class AutoPostAccessibilityService : AccessibilityService() {
                 (desc.contains("Photo", ignoreCase = true) ||
                     desc.contains("Video", ignoreCase = true) ||
                     desc.contains("Image", ignoreCase = true) ||
-                    cls.contains("ImageView") && node.isClickable) &&
+                    (cls.contains("ImageView") && node.isClickable)) &&
                     !desc.contains("Camera", ignoreCase = true) &&
                     hasClickableParentOrSelf(node)
             }
@@ -360,7 +440,6 @@ class AutoPostAccessibilityService : AccessibilityService() {
 
         if (pickedMedia) {
             delay(1000L)
-            // Click "Next" or "Done" if Facebook shows a multi-select confirmation bar
             retryFindAndClick(maxAttempts = 3, delayMs = 500L) { root ->
                 findNode(root) { node ->
                     val text = node.text?.toString()?.trim().orEmpty()
@@ -386,6 +465,9 @@ class AutoPostAccessibilityService : AccessibilityService() {
 
         return retryFindAndClick(maxAttempts = 8, delayMs = 600L) { root ->
             findNode(root) { node ->
+                if (node.isEditable || node.className?.toString() == "android.widget.EditText") {
+                    return@findNode false
+                }
                 val text = node.text?.toString()?.trim().orEmpty()
                 val desc = node.contentDescription?.toString()?.trim().orEmpty()
                 val isPostLabel = text.equals("Post", ignoreCase = true) ||
@@ -437,6 +519,16 @@ class AutoPostAccessibilityService : AccessibilityService() {
             val target = finder(root) ?: return@retryUntil false
             clickNodeOrParent(target)
         }
+    }
+
+    private fun findScrollableNode(root: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        if (root == null) return null
+        if (root.isScrollable) return root
+        for (i in 0 until root.childCount) {
+            val match = findScrollableNode(root.getChild(i))
+            if (match != null) return match
+        }
+        return null
     }
 
     private fun findNode(

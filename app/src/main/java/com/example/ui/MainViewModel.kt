@@ -162,7 +162,12 @@ class MainViewModel(
             mediaMimeType = state.selectedMedia?.mimeType
         )
 
-        val launched = AccessibilityPermissionHelper.launchFacebookApp(getApplication())
+        val firstTarget = selectedGroups.first()
+        val launched = if (AccessibilityPermissionHelper.isGroupUrl(firstTarget)) {
+            AccessibilityPermissionHelper.openFacebookGroupByUrl(getApplication(), firstTarget)
+        } else {
+            AccessibilityPermissionHelper.launchFacebookApp(getApplication())
+        }
         if (!launched) {
             PostQueueManager.stopPosting("Could not open Facebook app")
             _uiState.update { it.copy(showFacebookMissingDialog = true) }

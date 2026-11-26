@@ -3,7 +3,7 @@
     <string name="accessibility_service_label">Auto Group Poster Engine</string>
     <string name="accessibility_service_description">Automates searching your checked Facebook groups, filling post captions without clipboard copy-paste, attaching selected media, and publishing posts with human-like pauses.</string>
     <string name="section_my_groups">My Facebook Groups</string>
-    <string name="add_group_placeholder">Enter exact Facebook group name…</string>
+    <string name="add_group_placeholder">Enter group name or Facebook URL…</string>
     <string name="add_group_button">Add</string>
     <string name="select_all">Select All</string>
     <string name="deselect_all">Deselect All</string>
