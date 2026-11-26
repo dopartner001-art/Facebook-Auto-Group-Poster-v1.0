@@ -2,7 +2,7 @@
 
 **Auto Group Poster** is a free, **100% open-source** Android application built with **Kotlin**, **Jetpack Compose (Material 3)**, **Room Database**, and Android's **AccessibilityService**. It helps you maintain a local checklist of your Facebook groups and automate publishing a post (text caption + photo or video) across your checked groups using the official Facebook app (`com.facebook.katana`).
 
-[![Download APK](https://img.shields.io/badge/Download_APK-FacebookAutoGroupPoster.apk-1877F2?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dopartner001-art/AutoGroupPoster/releases/download/AutoGroupPoster_v1.0/FacebookAutoGroupPoster.apk)
+[![Download APK](https://img.shields.io/badge/Download_APK-FacebookAutoGroupPoster.apk-1877F2?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dopartner001-art/Facebook-Auto-Group-Poster-v1.0/releases/download/AutoGroupPoster_v1.0/FacebookAutoGroupPoster.apk)
 
 > **Open-Source & Privacy Guarantee:** Every line of source code in this repository is public and auditable. The APK built by GitHub Actions comes directly from this exact source code.
 
@@ -61,10 +61,10 @@ Anyone can verify these facts directly in the source files below:
 
 Click the button below for an instant direct download (no GitHub login required):
 
-[![Download APK](https://img.shields.io/badge/Download_APK-FacebookAutoGroupPoster.apk-1877F2?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dopartner001-art/AutoGroupPoster/releases/download/AutoGroupPoster_v1.0/FacebookAutoGroupPoster.apk)
+[![Download APK](https://img.shields.io/badge/Download_APK-FacebookAutoGroupPoster.apk-1877F2?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dopartner001-art/Facebook-Auto-Group-Poster-v1.0/releases/download/AutoGroupPoster_v1.0/FacebookAutoGroupPoster.apk)
 
 1. **Direct Link / GitHub Releases (Recommended — 1-Click Download):**
-   - Direct URL: [`https://github.com/dopartner001-art/AutoGroupPoster/releases/download/AutoGroupPoster_v1.0/FacebookAutoGroupPoster.apk`](https://github.com/dopartner001-art/AutoGroupPoster/releases/download/AutoGroupPoster_v1.0/FacebookAutoGroupPoster.apk)
+   - Direct URL: [`https://github.com/dopartner001-art/Facebook-Auto-Group-Poster-v1.0/releases/download/AutoGroupPoster_v1.0/FacebookAutoGroupPoster.apk`](https://github.com/dopartner001-art/Facebook-Auto-Group-Poster-v1.0/releases/download/AutoGroupPoster_v1.0/FacebookAutoGroupPoster.apk)
    - Or open **Releases** on this repository page and tap **`FacebookAutoGroupPoster.apk`**.
 2. **From GitHub Actions (Requires GitHub Login):**
    - Open the **Actions** tab -> click the latest green **"Build Debug APK"** workflow run -> scroll to **Artifacts** -> download **`auto-group-poster-debug-apk`** and extract `app-debug.apk`.
